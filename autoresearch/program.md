@@ -22,6 +22,7 @@ You may read any file in the repo for context, especially:
 - `README.md`
 - `data/README.md`
 - `autoresearch/program.md`
+- `autoresearch/directions.md`
 - `autoresearch/run_experiment.py`
 - `autoresearch/record_result.py`
 - `autoresearch/analyze_results.py`
@@ -58,6 +59,8 @@ cp autoresearch/results.tsv.example autoresearch/results.tsv
 ```
 
 4. Confirm setup, then begin the loop.
+
+Before the first experiment, also read `autoresearch/directions.md`. Treat it as the human's current steering memo.
 
 ## Run Command
 
@@ -155,6 +158,42 @@ This writes:
 - `autoresearch/summary.md`
 
 9. Continue without asking the human for permission after each experiment.
+
+## Records Mining
+
+The `records/` directory is an important source of ideas. Use it deliberately, not just once.
+
+- At setup time, read several recent high-performing `records/.../README.md` files and at least inspect the associated training scripts for the ideas that seem most transferable.
+- Every few experiments, or whenever progress stalls, rescan recent `records/` entries for techniques you have not yet tested.
+- Pay special attention to combinations that repeatedly show up across different submissions, not just one-off tricks.
+- Distinguish between:
+  - ideas that are likely portable into the current candidate with modest edits
+  - ideas that are tightly coupled to a very different code path or too large to adopt incrementally
+- Do not blindly paste whole record scripts into the candidate. Extract the idea, estimate the artifact-size and complexity cost, and test it incrementally.
+- If new record folders appear while you are running, incorporate them into your next periodic scan.
+
+When you mine `records/`, maintain a working shortlist in your own reasoning:
+- promising ideas to test soon
+- ideas already tried here
+- ideas rejected because they are too large, too coupled, or likely to violate the 16MB limit
+
+## Human Steering
+
+The human may steer the search in two ways:
+
+1. Update `autoresearch/directions.md`
+2. Give you direct instructions in chat
+
+Always treat the latest human instruction as highest priority. Re-read `autoresearch/directions.md` at setup time and again periodically, especially before choosing a new line of attack after a plateau.
+
+`autoresearch/directions.md` is for things like:
+- themes to prioritize
+- themes to avoid
+- ideas from `records/` that seem especially interesting
+- requests to focus on simpler changes, riskier changes, or certain model tradeoffs
+- requests to do broader exploration vs local refinement
+
+If the human gives a concrete direction, bias the experiment queue accordingly while still obeying the hard metric and size constraints.
 
 ## Heuristics
 
