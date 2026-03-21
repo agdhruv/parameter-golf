@@ -23,6 +23,8 @@ You may read any file in the repo for context, especially:
 - `data/README.md`
 - `autoresearch/program.md`
 - `autoresearch/run_experiment.py`
+- `autoresearch/record_result.py`
+- `autoresearch/analyze_results.py`
 - `autoresearch/candidate/train_gpt.py`
 - `records/.../README.md` and prior record scripts for ideas
 
@@ -84,6 +86,7 @@ The runner prints parseable lines including:
 - `status`
 - `run_dir`
 - `log_path`
+- `summary_path`
 - `commit`
 - `wall_seconds`
 - `exit_code`
@@ -131,8 +134,27 @@ python3 autoresearch/run_experiment.py --description "<short description>"
 6. If the run succeeds, compare against the best kept run:
    - keep only if `val_bpb` is lower and `artifact_bytes < 16000000`
    - otherwise record `discard` and revert to the previous good commit
-7. Append one row to `autoresearch/results.tsv` for every attempted run.
-8. Continue without asking the human for permission after each experiment.
+7. Record every attempted run with the fixed helper:
+
+```bash
+python3 autoresearch/record_result.py \
+  --summary "<path to summary.json>" \
+  --status "<keep|discard|crash|timeout>" \
+  --description "<short description>"
+```
+
+8. Periodically regenerate the analysis artifacts:
+
+```bash
+python3 autoresearch/analyze_results.py
+```
+
+This writes:
+- `autoresearch/progress.svg`
+- `autoresearch/summary.json`
+- `autoresearch/summary.md`
+
+9. Continue without asking the human for permission after each experiment.
 
 ## Heuristics
 
