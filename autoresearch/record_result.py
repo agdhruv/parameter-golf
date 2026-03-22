@@ -13,6 +13,8 @@ HEADER = [
     "val_bpb",
     "artifact_bytes",
     "peak_vram_mb",
+    "nproc_per_node",
+    "max_wallclock_seconds",
     "status",
     "description",
 ]
@@ -71,6 +73,12 @@ def main() -> int:
         "val_bpb": f"{float(summary['val_bpb']):.8f}" if summary.get("val_bpb") is not None else "0.00000000",
         "artifact_bytes": str(int(summary["artifact_bytes"])) if summary.get("artifact_bytes") is not None else "0",
         "peak_vram_mb": str(int(summary["peak_vram_mb"])) if summary.get("peak_vram_mb") is not None else "0",
+        "nproc_per_node": str(int(summary["nproc_per_node"])) if summary.get("nproc_per_node") is not None else "0",
+        "max_wallclock_seconds": (
+            str(int(float(summary["max_wallclock_seconds"])))
+            if summary.get("max_wallclock_seconds") is not None
+            else "0"
+        ),
         "status": args.status,
         "description": sanitize_description(args.description),
     }

@@ -16,6 +16,18 @@ Soft constraints:
 - Prefer simpler changes when performance is equal.
 - Avoid large VRAM regressions unless the quality gain is clearly worth it.
 
+## Hardware Context
+
+- The current autoresearch loop runs on **1x H100**.
+- The final target environment for serious submission-quality validation is **8x H100**.
+- Treat the single-GPU loop as an exploration environment, not the final truth about large-scale performance.
+- Prefer ideas that are likely to transfer across scale:
+  - architecture changes
+  - optimizer and schedule changes
+  - quantization and artifact-size improvements
+  - evaluation-aware improvements that should still make sense on 8 GPUs
+- Be more skeptical of ideas that only exploit quirks of a single card's memory, compilation behavior, or throughput profile.
+
 ## Scope
 
 You may read any file in the repo for context, especially:
@@ -70,6 +82,22 @@ Use the fixed runner/parser:
 python3 autoresearch/run_experiment.py --description "baseline"
 ```
 
+By default, the runner launches **1 process on 1 GPU** and sets:
+
+```bash
+MAX_WALLCLOCK_SECONDS=300
+```
+
+This is intentional: use short 5-minute iterations for faster research throughput on the current machine.
+
+For a longer confirmation run, override it explicitly:
+
+```bash
+python3 autoresearch/run_experiment.py \
+  --description "confirm candidate" \
+  --max-wallclock-seconds 600
+```
+
 If the active `python3` environment is missing `torch`, use:
 
 ```bash
@@ -91,6 +119,8 @@ The runner prints parseable lines including:
 - `log_path`
 - `summary_path`
 - `commit`
+- `nproc_per_node`
+- `max_wallclock_seconds`
 - `wall_seconds`
 - `exit_code`
 - `val_bpb`
@@ -104,7 +134,7 @@ Use those values when updating `autoresearch/results.tsv`.
 `autoresearch/results.tsv` is tab-separated with this header:
 
 ```tsv
-commit	run_id	val_bpb	artifact_bytes	peak_vram_mb	status	description
+commit	run_id	val_bpb	artifact_bytes	peak_vram_mb	nproc_per_node	max_wallclock_seconds	status	description
 ```
 
 Status values:
@@ -117,7 +147,7 @@ Use `0.00000000` for `val_bpb` and `0` for numeric fields when a run crashes bef
 
 ## Experiment Loop
 
-The first run must be the unmodified baseline from `autoresearch/candidate/train_gpt.py`.
+The first run must be the unmodified baseline from `autoresearch/candidate/train_gpt.py`, using the default 300-second budget unless the human explicitly asks otherwise.
 
 Then loop:
 
@@ -135,6 +165,7 @@ python3 autoresearch/run_experiment.py --description "<short description>"
    - fix and retry only if the issue is trivial
    - otherwise record `crash` or `timeout`, then revert to the previous good commit
 6. If the run succeeds, compare against the best kept run:
+   - compare runs primarily within the same track: same `nproc_per_node` and same `max_wallclock_seconds`
    - keep only if `val_bpb` is lower and `artifact_bytes < 16000000`
    - otherwise record `discard` and revert to the previous good commit
 7. Record every attempted run with the fixed helper:
@@ -158,6 +189,26 @@ This writes:
 - `autoresearch/summary.md`
 
 9. Continue without asking the human for permission after each experiment.
+
+## Time-Budget Policy
+
+- Default search track: **300-second runs on 1x H100**
+- Use this short-run track for most experiments so you can iterate quickly.
+- Periodically run a longer **600-second confirmation** on especially promising candidates.
+- Do not mix 300-second and 600-second results when deciding whether a change improved the current search track.
+- The analysis tools treat the baseline track as the primary frontier and exclude off-track runs from the main frontier calculation.
+
+## Scaling Policy
+
+- Remember that the current 1x H100 search loop is a proxy for the eventual 8x H100 target.
+- Favor modifications that should plausibly retain their benefit when scaled out.
+- When a change looks promising in the 300-second single-GPU track, consider one or both of:
+  - a 600-second single-GPU confirmation run
+  - flagging it as a candidate worth later 8x H100 verification
+- In your reasoning, keep track of whether a win is:
+  - likely scale-portable
+  - uncertain but worth later verification
+  - probably just a single-GPU local optimum
 
 ## Records Mining
 

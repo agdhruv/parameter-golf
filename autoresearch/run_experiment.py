@@ -32,6 +32,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--nproc-per-node", type=int, default=1, help="torchrun worker count.")
     parser.add_argument(
+        "--max-wallclock-seconds",
+        type=float,
+        default=300.0,
+        help="Value to pass as MAX_WALLCLOCK_SECONDS to the training script.",
+    )
+    parser.add_argument(
         "--timeout-seconds",
         type=float,
         default=1800.0,
@@ -86,6 +92,7 @@ def main() -> int:
     )
     env.setdefault("VOCAB_SIZE", "1024")
     env.setdefault("RUN_ID", run_id)
+    env["MAX_WALLCLOCK_SECONDS"] = str(args.max_wallclock_seconds)
     if args.seed is not None:
         env["SEED"] = str(args.seed)
 
@@ -149,6 +156,8 @@ def main() -> int:
         "candidate_path": str(candidate_path),
         "command": command,
         "commit": git_commit(repo_root),
+        "nproc_per_node": args.nproc_per_node,
+        "max_wallclock_seconds": args.max_wallclock_seconds,
         "wall_seconds": round(wall_seconds, 3),
         "exit_code": exit_code,
         "timed_out": timed_out,
@@ -168,6 +177,8 @@ def main() -> int:
     print(f"summary_path: {summary['summary_path']}")
     print(f"candidate_path: {summary['candidate_path']}")
     print(f"commit: {summary['commit']}")
+    print(f"nproc_per_node: {summary['nproc_per_node']}")
+    print(f"max_wallclock_seconds: {summary['max_wallclock_seconds']}")
     print(f"wall_seconds: {summary['wall_seconds']}")
     print(f"exit_code: {summary['exit_code']}")
     if summary["val_bpb"] is not None:

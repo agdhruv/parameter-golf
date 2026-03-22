@@ -18,6 +18,8 @@ class ResultRow:
     val_bpb: float | None
     artifact_bytes: int | None
     peak_vram_mb: int | None
+    nproc_per_node: int | None
+    max_wallclock_seconds: int | None
     status: str
     description: str
 
@@ -75,6 +77,8 @@ def read_results(path: Path) -> list[ResultRow]:
                     val_bpb=parse_float(row.get("val_bpb", "")),
                     artifact_bytes=parse_int(row.get("artifact_bytes", "")),
                     peak_vram_mb=parse_int(row.get("peak_vram_mb", "")),
+                    nproc_per_node=parse_int(row.get("nproc_per_node", "")),
+                    max_wallclock_seconds=parse_int(row.get("max_wallclock_seconds", "")),
                     status=(row.get("status") or "").strip().upper(),
                     description=(row.get("description") or "").strip(),
                 )
@@ -93,10 +97,20 @@ def format_float(value: float | None, digits: int = 8) -> str:
     return "n/a" if value is None else f"{value:.{digits}f}"
 
 
+def same_track(row: ResultRow, baseline: ResultRow | None) -> bool:
+    if baseline is None:
+        return True
+    return (
+        row.nproc_per_node == baseline.nproc_per_node
+        and row.max_wallclock_seconds == baseline.max_wallclock_seconds
+    )
+
+
 def build_summary(rows: list[ResultRow]) -> dict:
     counts = Counter(row.status for row in rows)
     baseline = first_valid(rows)
-    kept = [row for row in rows if row.status == "KEEP" and row.val_bpb is not None and row.val_bpb > 0]
+    primary_rows = [row for row in rows if same_track(row, baseline)]
+    kept = [row for row in primary_rows if row.status == "KEEP" and row.val_bpb is not None and row.val_bpb > 0]
     best = min(kept, key=lambda row: row.val_bpb) if kept else baseline
 
     n_keep = counts.get("KEEP", 0)
@@ -133,12 +147,20 @@ def build_summary(rows: list[ResultRow]) -> dict:
             "run_id": baseline.run_id if baseline else None,
             "val_bpb": baseline.val_bpb if baseline else None,
             "description": baseline.description if baseline else None,
+            "nproc_per_node": baseline.nproc_per_node if baseline else None,
+            "max_wallclock_seconds": baseline.max_wallclock_seconds if baseline else None,
         },
         "best": {
             "run_id": best.run_id if best else None,
             "val_bpb": best.val_bpb if best else None,
             "description": best.description if best else None,
             "commit": best.commit if best else None,
+        },
+        "primary_track": {
+            "nproc_per_node": baseline.nproc_per_node if baseline else None,
+            "max_wallclock_seconds": baseline.max_wallclock_seconds if baseline else None,
+            "rows_in_track": len(primary_rows),
+            "rows_outside_track": len(rows) - len(primary_rows),
         },
         "total_improvement": (
             baseline.val_bpb - best.val_bpb
@@ -162,17 +184,29 @@ def render_summary_markdown(rows: list[ResultRow], summary: dict) -> str:
 
     baseline = summary["baseline"]
     best = summary["best"]
+    primary_track = summary["primary_track"]
     lines.append("## Frontier")
     lines.append("")
+    if primary_track["nproc_per_node"] is not None:
+        lines.append(
+            f"- Primary track: {primary_track['nproc_per_node']} GPU, {primary_track['max_wallclock_seconds']}s runs"
+        )
     lines.append(f"- Baseline val_bpb: {format_float(baseline['val_bpb'])}")
     lines.append(f"- Best val_bpb: {format_float(best['val_bpb'])}")
     if summary["total_improvement"] is not None:
         lines.append(f"- Total improvement: {summary['total_improvement']:.8f}")
     if best["description"]:
         lines.append(f"- Best experiment: {best['description']}")
+    if primary_track["rows_outside_track"]:
+        lines.append(
+            f"- Off-track runs excluded from frontier math: {primary_track['rows_outside_track']}"
+        )
     lines.append("")
 
-    kept_rows = [row for row in rows if row.status == "KEEP" and row.val_bpb is not None and row.val_bpb > 0]
+    kept_rows = [
+        row for row in rows
+        if same_track(row, first_valid(rows)) and row.status == "KEEP" and row.val_bpb is not None and row.val_bpb > 0
+    ]
     lines.append("## Kept Runs")
     lines.append("")
     if kept_rows:
@@ -223,8 +257,11 @@ def render_progress_svg(rows: list[ResultRow], output_path: Path) -> None:
     plot_w = width - margin_left - margin_right
     plot_h = height - margin_top - margin_bottom
 
-    valid = [row for row in rows if row.val_bpb is not None and row.val_bpb > 0 and row.status not in {"CRASH", "TIMEOUT"}]
     baseline = first_valid(rows)
+    valid = [
+        row for row in rows
+        if same_track(row, baseline) and row.val_bpb is not None and row.val_bpb > 0 and row.status not in {"CRASH", "TIMEOUT"}
+    ]
     kept = [row for row in valid if row.status == "KEEP"]
 
     parts = [
@@ -296,12 +333,16 @@ def render_progress_svg(rows: list[ResultRow], output_path: Path) -> None:
             prev_x, prev_y = x, y
 
     counts = Counter(row.status for row in rows)
+    track_label = ""
+    if baseline and baseline.nproc_per_node is not None:
+        track_label = f" | plotted track: {baseline.nproc_per_node} GPU, {baseline.max_wallclock_seconds}s"
     subtitle = (
         f"{len(rows)} experiments, "
         f"{counts.get('KEEP', 0)} kept, "
         f"{counts.get('DISCARD', 0)} discarded, "
         f"{counts.get('CRASH', 0)} crashed, "
         f"{counts.get('TIMEOUT', 0)} timed out"
+        f"{track_label}"
     )
     parts.append(svg_text(width / 2, 72, subtitle, 18, "#4b5563", "middle"))
     parts.append(svg_text(width / 2, height - 28, "Experiment index", 18, "#1f2937", "middle"))
