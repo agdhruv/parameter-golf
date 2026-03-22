@@ -8,6 +8,7 @@ Autonomously search for lower `val_bpb` on a dedicated research branch without c
 
 Primary objective:
 - Minimize the final `val_bpb` from `final_int8_zlib_roundtrip_exact`.
+- Beat the current SOTA recorded in the repo README, not merely improve over the local baseline.
 
 Hard constraint:
 - `Total submission size int8+zlib` must stay strictly below `16000000` bytes.
@@ -18,9 +19,10 @@ Soft constraints:
 
 ## Hardware Context
 
-- The current autoresearch loop runs on **1x H100**.
-- The final target environment for serious submission-quality validation is **8x H100**.
-- Treat the single-GPU loop as an exploration environment, not the final truth about large-scale performance.
+- You have access to both **1x H100** and **8x H100** execution modes.
+- The real target environment is **8x H100 for 600 seconds**.
+- Treat 8x H100 runs as the source-of-truth track for serious conclusions.
+- Use 1x H100 runs as a scout track for faster implementation/debugging feedback and coarse ranking.
 - Prefer ideas that are likely to transfer across scale:
   - architecture changes
   - optimizer and schedule changes
@@ -85,16 +87,17 @@ python3 autoresearch/run_experiment.py --description "baseline"
 By default, the runner launches **1 process on 1 GPU** and sets:
 
 ```bash
-MAX_WALLCLOCK_SECONDS=300
+MAX_WALLCLOCK_SECONDS=600
 ```
 
-This is intentional: use short 5-minute iterations for faster research throughput on the current machine.
+This default is the **1x H100 scout track**.
 
-For a longer confirmation run, override it explicitly:
+For an 8x H100 confirmation run, use:
 
 ```bash
 python3 autoresearch/run_experiment.py \
-  --description "confirm candidate" \
+  --description "8gpu confirm candidate" \
+  --nproc-per-node 8 \
   --max-wallclock-seconds 600
 ```
 
@@ -147,7 +150,7 @@ Use `0.00000000` for `val_bpb` and `0` for numeric fields when a run crashes bef
 
 ## Experiment Loop
 
-The first run must be the unmodified baseline from `autoresearch/candidate/train_gpt.py`, using the default 300-second budget unless the human explicitly asks otherwise.
+The first run must be the unmodified baseline from `autoresearch/candidate/train_gpt.py`, using the default 1x H100, 600-second scout track unless the human explicitly asks otherwise.
 
 Then loop:
 
@@ -190,25 +193,50 @@ This writes:
 
 9. Continue without asking the human for permission after each experiment.
 
-## Time-Budget Policy
+## Track Policy
 
-- Default search track: **300-second runs on 1x H100**
-- Use this short-run track for most experiments so you can iterate quickly.
-- Periodically run a longer **600-second confirmation** on especially promising candidates.
-- Do not mix 300-second and 600-second results when deciding whether a change improved the current search track.
-- The analysis tools treat the baseline track as the primary frontier and exclude off-track runs from the main frontier calculation.
-
-## Scaling Policy
-
-- Remember that the current 1x H100 search loop is a proxy for the eventual 8x H100 target.
-- Favor modifications that should plausibly retain their benefit when scaled out.
-- When a change looks promising in the 300-second single-GPU track, consider one or both of:
-  - a 600-second single-GPU confirmation run
-  - flagging it as a candidate worth later 8x H100 verification
+- Default scout track: **1x H100 for 600 seconds**
+- Source-of-truth track: **8x H100 for 600 seconds**
+- Do not mix scout-track and 8x-track results when deciding whether a change improved the frontier.
+- Use scout runs for:
+  - code correctness
+  - cheap pruning of bad ideas
+  - rough local ranking
+- Use 8x runs for:
+  - any candidate that looks plausibly near or beyond the current frontier
+  - periodic calibration of whether scout-track wins are actually portable
+  - final decisions about whether a direction is submission-worthy
 - In your reasoning, keep track of whether a win is:
+  - scout-only
   - likely scale-portable
-  - uncertain but worth later verification
-  - probably just a single-GPU local optimum
+  - confirmed on 8x H100
+
+## Competitive Intelligence
+
+The target is to beat SOTA by assembling the best transferable ideas from the field, not by ignoring everyone else's work.
+
+- Mine the local `records/` directory continuously.
+- Also inspect the upstream `openai/parameter-golf` pull requests for claims of better-than-SOTA results, especially recent open PRs and recent merged PRs.
+- If multiple competitors independently converge on similar ideas, raise the priority of testing that cluster.
+- Favor cross-pollination: combine the strongest ideas from different submissions when the interactions look plausible.
+- Do not copy blindly. Extract the mechanism, understand the cost, then test it in the current candidate.
+
+Preferred CLI workflow for PR mining, if `gh` is installed and authenticated:
+
+```bash
+gh pr list --repo openai/parameter-golf --state open --limit 50
+gh pr list --repo openai/parameter-golf --state merged --limit 50
+gh pr view <number> --repo openai/parameter-golf
+gh pr diff <number> --repo openai/parameter-golf
+```
+
+Use `gh` to identify:
+- claimed SOTA improvements
+- new architectural ideas
+- repeated motifs across unrelated PRs
+- promising code paths worth porting partially
+
+If `gh` is unavailable or unauthenticated, tell the human clearly that the PR-mining path is blocked and continue using the local `records/` directory until that is fixed.
 
 ## Records Mining
 
@@ -249,7 +277,7 @@ If the human gives a concrete direction, bias the experiment queue accordingly w
 ## Heuristics
 
 - Start with cheap local edits: hyperparameters, warmdown, sequence length, width/depth tradeoffs, optimizer settings, tying, quantization-aware structure.
-- Mine `records/` for ideas, but do not copy whole submissions blindly without understanding the artifact-size tradeoff.
+- Mine `records/` and upstream PRs for ideas, but do not copy whole submissions blindly without understanding the artifact-size tradeoff.
 - Prefer one clear idea per experiment.
 - When a direction looks promising, do a few local refinements before switching themes.
 - Before spending many runs on a complex idea, ask whether it improves the final compressed metric, not just pre-quant quality.

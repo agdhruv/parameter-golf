@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--max-wallclock-seconds",
         type=float,
-        default=300.0,
+        default=600.0,
         help="Value to pass as MAX_WALLCLOCK_SECONDS to the training script.",
     )
     parser.add_argument(
