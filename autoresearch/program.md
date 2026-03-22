@@ -37,6 +37,9 @@ You may read any file in the repo for context, especially:
 - `data/README.md`
 - `autoresearch/program.md`
 - `autoresearch/directions.md`
+- `.agents/skills/gh-cli/SKILL.md`
+- `.agents/skills/runpodctl/SKILL.md`
+- `.agents/runpod-8xh100-playbook.md`
 - `autoresearch/run_experiment.py`
 - `autoresearch/record_result.py`
 - `autoresearch/analyze_results.py`
@@ -75,6 +78,11 @@ cp autoresearch/results.tsv.example autoresearch/results.tsv
 4. Confirm setup, then begin the loop.
 
 Before the first experiment, also read `autoresearch/directions.md`. Treat it as the human's current steering memo.
+
+If the repo-local skills and playbook files exist, read them before using GitHub CLI or Runpod automation:
+- `.agents/skills/gh-cli/SKILL.md`
+- `.agents/skills/runpodctl/SKILL.md`
+- `.agents/runpod-8xh100-playbook.md`
 
 ## Run Command
 
@@ -206,10 +214,34 @@ This writes:
   - any candidate that looks plausibly near or beyond the current frontier
   - periodic calibration of whether scout-track wins are actually portable
   - final decisions about whether a direction is submission-worthy
+- Use the current machine as the control plane for research and triage.
+- Use the 8x H100 pod as a disposable execution worker for heavyweight confirmations.
+- The 8x pod does not need a Codex login; it just needs to run the experiment, report the result, and be torn down.
 - In your reasoning, keep track of whether a win is:
   - scout-only
   - likely scale-portable
   - confirmed on 8x H100
+
+## 8x Promotion Policy
+
+Promote a candidate to an 8x H100 run when one or more of the following are true:
+
+- the scout-track result looks materially better than the current scout frontier
+- the idea combines multiple strong signals from top local records and upstream PRs
+- the change looks especially likely to scale well
+- the human explicitly asks for an 8x confirmation
+
+When promoting:
+
+- read and follow `.agents/skills/runpodctl/SKILL.md`
+- read and follow `.agents/runpod-8xh100-playbook.md`
+- provision the 8x H100 pod from the current machine
+- run the full 600-second experiment on 8 GPUs
+- capture the final `final_int8_zlib_roundtrip_exact` line and any important logs
+- record the result in `autoresearch/results.tsv`
+- tear down the pod immediately after the run
+
+Treat 8x confirmations as expensive, high-signal measurements. Do not send every mediocre scout win to 8 GPUs.
 
 ## Competitive Intelligence
 
@@ -217,26 +249,25 @@ The target is to beat SOTA by assembling the best transferable ideas from the fi
 
 - Mine the local `records/` directory continuously.
 - Also inspect the upstream `openai/parameter-golf` pull requests for claims of better-than-SOTA results, especially recent open PRs and recent merged PRs.
+- Use the repo-local GitHub CLI skill when it exists:
+  - `.agents/skills/gh-cli/SKILL.md`
 - If multiple competitors independently converge on similar ideas, raise the priority of testing that cluster.
 - Favor cross-pollination: combine the strongest ideas from different submissions when the interactions look plausible.
 - Do not copy blindly. Extract the mechanism, understand the cost, then test it in the current candidate.
 
-Preferred CLI workflow for PR mining, if `gh` is installed and authenticated:
-
-```bash
-gh pr list --repo openai/parameter-golf --state open --limit 50
-gh pr list --repo openai/parameter-golf --state merged --limit 50
-gh pr view <number> --repo openai/parameter-golf
-gh pr diff <number> --repo openai/parameter-golf
-```
-
-Use `gh` to identify:
-- claimed SOTA improvements
-- new architectural ideas
+For PR mining, focus especially on:
+- PRs that explicitly claim to beat the current SOTA
+- PRs near the top of the current leaderboard frontier
+- recent merged PRs that added strong new techniques
 - repeated motifs across unrelated PRs
-- promising code paths worth porting partially
+- code paths that look portable into the current candidate with moderate effort
 
-If `gh` is unavailable or unauthenticated, tell the human clearly that the PR-mining path is blocked and continue using the local `records/` directory until that is fixed.
+When mining PRs, extract:
+- the claimed score
+- the core ideas
+- which ideas are cheap to port
+- which ideas are likely fragile or tightly coupled
+- which ideas combine naturally with the best local record techniques
 
 ## Records Mining
 
@@ -244,6 +275,7 @@ The `records/` directory is an important source of ideas. Use it deliberately, n
 
 - At setup time, read several recent high-performing `records/.../README.md` files and at least inspect the associated training scripts for the ideas that seem most transferable.
 - Every few experiments, or whenever progress stalls, rescan recent `records/` entries for techniques you have not yet tested.
+- Gather information from the current top SOTA runs, not just one favorite submission.
 - Pay special attention to combinations that repeatedly show up across different submissions, not just one-off tricks.
 - Distinguish between:
   - ideas that are likely portable into the current candidate with modest edits
@@ -287,6 +319,9 @@ If the human gives a concrete direction, bias the experiment queue accordingly w
 When asked for a summary, report:
 - current best `val_bpb`
 - best run directory
+- best scout-track result
+- best 8x-confirmed result
 - notable winning ideas
 - failed ideas worth avoiding
+- which local records and upstream PRs seem most important right now
 - whether the best candidate looks worth promoting into a real `records/` submission folder
